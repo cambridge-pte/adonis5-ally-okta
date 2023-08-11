@@ -1,7 +1,7 @@
 {
-  "name": "ally-custom-driver",
-  "version": "0.0.0",
-  "description": "A boilerplate for a custom ally driver",
+  "name": "@cambridge-pte/adonis5-ally-okta",
+  "version": "1.0.2",
+  "description": "Custom adonisjs/ally provider for Okta.",
   "main": "build/providers/index.js",
   "files": [
     "build/src",
@@ -24,12 +24,17 @@
     "adonisjs",
     "adonis-ally"
   ],
-  "author": "",
+  "author": "Russel Herrera",
+  "maintainers": [
+    "John Renzo Sunico <jsunico@cambridge.org>",
+    "Russel Herrera <russel.herrera@cambridge.org>"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@adonisjs/ally": "^4.0.0",
     "@adonisjs/core": "^5.1.8",
-    "@types/node": "^15.12.2",
+    "@types/node": "^15.14.9",
+    "copyfiles": "^2.4.1",
     "del-cli": "^3.0.1",
     "eslint": "^7.28.0",
     "eslint-config-prettier": "^8.3.0",
@@ -45,12 +50,29 @@
   "adonisjs": {
     "instructionsMd": "./build/instructions.md",
     "env": {
-      "YOUR_DRIVER_CLIENT_ID": "",
-      "YOUR_DRIVER_CLIENT_SECRET": ""
+      "OKTA_DRIVER_CLIENT_ID": "",
+      "OKTA_DRIVER_CLIENT_SECRET": "",
+      "OKTA_DRIVER_AUTHORIZE_URL": "",
+      "OKTA_DRIVER_USER_INFO_URL": "",
+      "OKTA_DRIVER_TOKEN_URL": "",
+      "OKTA_DRIVER_RESPONSE_TYPE": "",
+      "OKTA_DRIVER_SCOPES": ""
     },
-    "types": "ally-custom-driver",
+    "types": "@cambridge-pte/adonis5-ally-okta",
     "providers": [
-      "ally-custom-driver"
+      "@cambridge-pte/adonis5-ally-okta"
     ]
-  }
+  },
+  "types": "./build/providers/index.d.ts",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cambridge-pte/adonis5-ally-okta.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cambridge-pte/adonis5-ally-okta/issues"
+  },
+  "homepage": "https://github.com/cambridge-pte/adonis5-ally-okta#readme"
 }

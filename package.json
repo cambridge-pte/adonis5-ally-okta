@@ -1,6 +1,6 @@
 {
   "name": "@cambridge-pte/adonis5-ally-okta",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Custom adonisjs/ally provider for Okta.",
   "main": "build/providers/index.js",
   "files": [

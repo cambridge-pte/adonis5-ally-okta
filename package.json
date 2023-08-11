@@ -63,6 +63,7 @@
       "@cambridge-pte/adonis5-ally-okta"
     ]
   },
+  "types": "./build/providers/index.d.ts",
   "dependencies": {
     "node-fetch": "^3.3.2"
   },

@@ -17,6 +17,7 @@ import type {
 } from '@ioc:Adonis/Addons/Ally'
 import type { HttpContextContract } from '@ioc:Adonis/Core/HttpContext'
 import { Oauth2Driver, ApiRequest, RedirectRequest } from '@adonisjs/ally/build/standalone'
+const crypto = require('crypto')
 /**
  * Define the access token object properties in this type. It
  * must have "token" and "type" and you are free to add
@@ -147,15 +148,21 @@ export class OktaDriver extends Oauth2Driver<OktaDriverAccessToken, OktaDriverSc
    */
 
   protected configureRedirectRequest(request: RedirectRequest<OktaDriverScopes>) {
+    const generateToken = (prefix: string, length = 16) => {
+      return prefix + crypto.randomBytes(length).toString('hex')
+    }
+
+    const state = generateToken('state-')
+    const nonce = generateToken('nonce-')
+
     request.param('scope', this.config.scopes)
-    request.param('state', new Date().getTime())
+    request.param('state', state)
     request.param('response_type', this.config.responseType)
-    request.param('nonce', new Date().getTime())
+    request.param('nonce', nonce)
     request.param('redirect_uri', this.config.callbackUrl)
 
     return request
   }
-
   /**
    * Returns the HTTP request with the authorization header set
    */

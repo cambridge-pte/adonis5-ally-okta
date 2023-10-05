@@ -10,10 +10,14 @@
 |
 */
 
-import type { AllyUserContract } from '@ioc:Adonis/Addons/Ally'
+import type {
+  AllyUserContract,
+  ApiRequestContract,
+  LiteralStringUnion,
+} from '@ioc:Adonis/Addons/Ally'
 import type { HttpContextContract } from '@ioc:Adonis/Core/HttpContext'
-import { Oauth2Driver, ApiRequest } from '@adonisjs/ally/build/standalone'
-
+import { Oauth2Driver, ApiRequest, RedirectRequest } from '@adonisjs/ally/build/standalone'
+const crypto = require('crypto')
 /**
  * Define the access token object properties in this type. It
  * must have "token" and "type" and you are free to add
@@ -23,7 +27,7 @@ import { Oauth2Driver, ApiRequest } from '@adonisjs/ally/build/standalone'
  * Change "YourDriver" to something more relevant
  * ------------------------------------------------
  */
-export type YourDriverAccessToken = {
+export type OktaDriverAccessToken = {
   token: string
   type: 'bearer'
 }
@@ -36,8 +40,14 @@ export type YourDriverAccessToken = {
  * Change "YourDriver" to something more relevant
  * ------------------------------------------------
  */
-export type YourDriverScopes = string
-
+export type OktaDriverScopes =
+  | 'openid'
+  | 'email'
+  | 'profile'
+  | 'address'
+  | 'phone'
+  | 'offline_access'
+  | 'groups'
 /**
  * Define the configuration options accepted by your driver. It must have the following
  * properties and you are free add more.
@@ -46,14 +56,16 @@ export type YourDriverScopes = string
  * Change "YourDriver" to something more relevant
  * ------------------------------------------------
  */
-export type YourDriverConfig = {
-  driver: 'YourDriverName'
+export type OktaDriverConfig = {
+  driver: 'okta'
   clientId: string
   clientSecret: string
   callbackUrl: string
-  authorizeUrl?: string
-  accessTokenUrl?: string
-  userInfoUrl?: string
+  authorizeUrl: string
+  accessTokenUrl: string
+  userInfoUrl: string
+  scopes: LiteralStringUnion<OktaDriverScopes>
+  responseType: string
 }
 
 /**
@@ -63,26 +75,20 @@ export type YourDriverConfig = {
  * Change "YourDriver" to something more relevant
  * ------------------------------------------------
  */
-export class YourDriver extends Oauth2Driver<YourDriverAccessToken, YourDriverScopes> {
+export class OktaDriver extends Oauth2Driver<OktaDriverAccessToken, OktaDriverScopes> {
   /**
    * The URL for the redirect request. The user will be redirected on this page
    * to authorize the request.
-   *
-   * Do not define query strings in this URL.
    */
   protected authorizeUrl = ''
 
   /**
    * The URL to hit to exchange the authorization code for the access token
-   *
-   * Do not define query strings in this URL.
    */
   protected accessTokenUrl = ''
 
   /**
    * The URL to hit to get the user details
-   *
-   * Do not define query strings in this URL.
    */
   protected userInfoUrl = ''
 
@@ -102,10 +108,9 @@ export class YourDriver extends Oauth2Driver<YourDriverAccessToken, YourDriverSc
 
   /**
    * Cookie name for storing the CSRF token. Make sure it is always unique. So a better
-   * approach is to prefix the oauth provider name to `oauth_state` value. For example:
-   * For example: "facebook_oauth_state"
+   * approach is to prefix the oauth provider name to `oauth_state` value.
    */
-  protected stateCookieName = 'YourDriver_oauth_state'
+  protected stateCookieName = 'OktaDriver_oauth_state'
 
   /**
    * Parameter name to be used for sending and receiving the state from.
@@ -125,9 +130,8 @@ export class YourDriver extends Oauth2Driver<YourDriverAccessToken, YourDriverSc
    */
   protected scopesSeparator = ' '
 
-  constructor(ctx: HttpContextContract, public config: YourDriverConfig) {
+  constructor(ctx: HttpContextContract, public config: OktaDriverConfig) {
     super(ctx, config)
-
     /**
      * Extremely important to call the following method to clear the
      * state set by the redirect request.
@@ -142,15 +146,81 @@ export class YourDriver extends Oauth2Driver<YourDriverAccessToken, YourDriverSc
    * is made by the base implementation of "Oauth2" driver and this is a
    * hook to pre-configure the request.
    */
-  // protected configureRedirectRequest(request: RedirectRequest<YourDriverScopes>) {}
+
+  protected configureRedirectRequest(request: RedirectRequest<OktaDriverScopes>) {
+    const generateToken = (prefix: string, length = 16) => {
+      return prefix + crypto.randomBytes(length).toString('hex')
+    }
+
+    const state = generateToken('state-')
+    const nonce = generateToken('nonce-')
+
+    request.param('scope', this.config.scopes)
+    request.param('state', state)
+    request.param('response_type', this.config.responseType)
+    request.param('nonce', nonce)
+    request.param('redirect_uri', this.config.callbackUrl)
+
+    return request
+  }
+  /**
+   * Returns the HTTP request with the authorization header set
+   */
+  protected getAuthenticatedRequest(url: string, token?: string) {
+    const request = this.httpClient(url)
+    request.header('Authorization', `Bearer ${token}`)
+    request.header('Accept', 'application/json')
+    request.parseAs('json')
+    return request
+  }
+
+  /**
+   * Fetches the user info from the Google API
+   */
+  protected async getUserInfo(token: string, callback?: (request: ApiRequestContract) => void) {
+    const request = this.getAuthenticatedRequest(this.config.userInfoUrl || this.userInfoUrl, token)
+
+    if (typeof callback === 'function') {
+      callback(request)
+    }
+
+    const body = await request.get()
+
+    return {
+      id: body.sub,
+      nickName: body.name,
+      name: body.name,
+      email: body.preferred_username,
+      avatarUrl: body.picture,
+      emailVerificationState: body.email_verified ? ('verified' as const) : ('unverified' as const),
+      original: body,
+    }
+  }
 
   /**
    * Optionally configure the access token request. The actual request is made by
    * the base implementation of "Oauth2" driver and this is a hook to pre-configure
    * the request
    */
-  // protected configureAccessTokenRequest(request: ApiRequest) {}
+  protected configureAccessTokenRequest(request: ApiRequest) {
+    const code = this.getCode()
+    const auth = Buffer.from(`${this.config.clientId}:${this.config.clientSecret}`).toString(
+      'base64'
+    )
 
+    request.headers = {
+      'content-type': 'application/x-www-form-urlencoded;charset=utf-8',
+      'authorization': `Basic ${auth}`,
+    }
+
+    request.fields = {
+      grant_type: 'authorization_code',
+      code: code,
+      redirect_uri: this.config.callbackUrl,
+    }
+
+    return request
+  }
   /**
    * Update the implementation to tell if the error received during redirect
    * means "ACCESS DENIED".
@@ -158,7 +228,6 @@ export class YourDriver extends Oauth2Driver<YourDriverAccessToken, YourDriverSc
   public accessDenied() {
     return this.ctx.request.input('error') === 'user_denied'
   }
-
   /**
    * Get the user details by query the provider API. This method must return
    * the access token and the user details both. Checkout the google
@@ -168,39 +237,25 @@ export class YourDriver extends Oauth2Driver<YourDriverAccessToken, YourDriverSc
    */
   public async user(
     callback?: (request: ApiRequest) => void
-  ): Promise<AllyUserContract<YourDriverAccessToken>> {
+  ): Promise<AllyUserContract<OktaDriverAccessToken>> {
     const accessToken = await this.accessToken()
-    const request = this.httpClient(this.config.userInfoUrl || this.userInfoUrl)
+    const user = await this.getUserInfo(accessToken.token, callback)
 
-    /**
-     * Allow end user to configure the request. This should be called after your custom
-     * configuration, so that the user can override them (if required)
-     */
-    if (typeof callback === 'function') {
-      callback(request)
+    return {
+      ...user,
+      token: accessToken,
     }
-
-    /**
-     * Write your implementation details here
-     */
   }
 
   public async userFromToken(
     accessToken: string,
     callback?: (request: ApiRequest) => void
   ): Promise<AllyUserContract<{ token: string; type: 'bearer' }>> {
-    const request = this.httpClient(this.config.userInfoUrl || this.userInfoUrl)
+    const user = await this.getUserInfo(accessToken, callback)
 
-    /**
-     * Allow end user to configure the request. This should be called after your custom
-     * configuration, so that the user can override them (if required)
-     */
-    if (typeof callback === 'function') {
-      callback(request)
+    return {
+      ...user,
+      token: { token: accessToken, type: 'bearer' as const },
     }
-
-    /**
-     * Write your implementation details here
-     */
   }
 }
